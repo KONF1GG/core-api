@@ -1,23 +1,23 @@
+
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from logger_config import setup_logging, get_logger
-from routes.redis_routes.redis_routes import router as redis_router
 from routes.frida_routes.auth_router import router as auth_router
-from routes.frida_routes.logger_router import router as logger_router  
+from routes.frida_routes.logger_router import router as logger_router
 from routes.ai_router.ai_routes import router as ai_router
 
 # Инициализация логирования
-import os
 
 log_level = os.getenv("LOG_LEVEL", "INFO")
 setup_logging(log_level)
 logger = get_logger(__name__)
 
 app = FastAPI(
-    title="Core API",
-    description="API для работы с Redis, Telegram ботом Фридой и AI запросами",
+    title="WIKI API (Frida)",
+    description="API для работы Бота Wiki (Фрида)",
     version="1.0.0",
 )
 
@@ -29,7 +29,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(redis_router)
 app.include_router(auth_router)
 app.include_router(ai_router)
 app.include_router(logger_router)
@@ -40,7 +39,7 @@ async def root():
     """Главная страница API."""
     logger.info("Root endpoint accessed")
     return {
-        "message": "Core API работает",
+        "message": "WIKI API работает",
         "version": "1.0.0",
         "services": {"redis": "/redis", "telegram": "/telegram", "ai": "/ai"},
         "docs": "/docs",
