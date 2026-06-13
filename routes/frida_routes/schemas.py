@@ -4,9 +4,8 @@
 Содержит Pydantic модели для валидации данных аутентификации,
 логирования и взаимодействия с внешними системами.
 """
-
+from typing import List, Literal
 from pydantic import BaseModel, Field
-from typing import List, Literal, Optional
 
 
 class LoggData(BaseModel):
@@ -20,6 +19,7 @@ class LoggData(BaseModel):
     )
     hashes: List[str] = Field(..., description="Список хэшей используемых тем")
     category: str = Field(default="", description="Категория запроса")
+    source_type: str = Field(default="", description="Откуда пришел запрос")
 
 
 class UserData(BaseModel):
@@ -38,10 +38,5 @@ class Employee1C(BaseModel):
     jobTitle: str = Field(..., description="Должность сотрудника")
 
 
-class AuthResponse(BaseModel):
+class AuthResponse(Employee1C):
     """Модель ответа для аутентификации пользователя."""
-
-    status: str = Field(..., description="Статус операции (created/exists)")
-    message: str = Field(..., description="Сообщение о результате")
-    fio: Optional[str] = Field(None, description="ФИО сотрудника")
-    position: Optional[str] = Field(None, description="Должность сотрудника")

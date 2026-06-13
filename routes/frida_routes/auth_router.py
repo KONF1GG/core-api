@@ -7,12 +7,11 @@
 
 from typing import Dict, List
 from fastapi import APIRouter, HTTPException
-
-from logger_config import get_logger
-from .schemas import AuthResponse, Employee1C, UserData
+from .schemas import  Employee1C, UserData, AuthResponse
 from .crud import auth_1c
-import config
 from databases import PostgreSQL
+from logger_config import get_logger
+import config
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -21,7 +20,7 @@ logger = get_logger(__name__)
 @router.post("/v1/auth", tags=["Frida"], response_model=AuthResponse)
 async def check_and_add_user(data: UserData):
     """
-    Проверяет сотрудника в 1С и добавляет в БД при необходимости.
+    Проверяет сотрудника в 1С
     
     Args:
         data: Данные пользователя для проверки
@@ -34,14 +33,14 @@ async def check_and_add_user(data: UserData):
     """
     logger.info("Authentication request for user: %s", data.user_id)
     postgres = None
-    
+
     try:
         # 1. Проверка в 1С
         if not data.user_id == 311362872:
             employee = await auth_1c(data.user_id)
         else:
             employee = Employee1C(fio="Крохалев Леонтий Михайлович", jobTitle="Разработчик")
-            
+
         if isinstance(employee, Employee1C):
             fio = employee.fio
             job_title = employee.jobTitle
@@ -62,14 +61,10 @@ async def check_and_add_user(data: UserData):
                 fio.split()[0] if fio else data.lastname
             )
             logger.info("New user %s added to database", data.user_id)
-            status = "created"
-            message = "User successfully added."
         else:
             logger.debug("User %s already exists in database", data.user_id)
-            status = "exists"
-            message = "User already exists."
 
-        return AuthResponse(status=status, message=message, fio=fio, position=job_title)
+        return AuthResponse(fio=fio, jobTitle=job_title)
 
     except HTTPException:
         raise

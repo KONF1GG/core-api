@@ -6,9 +6,9 @@ CRUD операции для работы с внешними сервисами
 
 from typing import Dict
 from aiohttp import ClientSession
+from .schemas import Employee1C
 
 from logger_config import get_logger
-from .schemas import Employee1C
 
 logger = get_logger(__name__)
 

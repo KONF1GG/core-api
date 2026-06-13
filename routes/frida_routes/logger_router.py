@@ -1,12 +1,12 @@
 """Маршруты для логирования сообщений в базу данных Frida."""
 
 from fastapi import APIRouter, HTTPException
+from .schemas import LoggData
 
 import config
 from databases import PostgreSQL
 from general_schemas import StatusResponse
 from logger_config import get_logger
-from .schemas import LoggData
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -38,6 +38,7 @@ async def log_to_frida_db(data: LoggData) -> StatusResponse:
             data.status == 1,
             data.hashes,
             data.category,
+            data.source_type,
         )
 
         logger.debug("Message logged successfully for user: %s", data.user_id)

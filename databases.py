@@ -182,6 +182,7 @@ class PostgreSQL:
         response_status,
         topic_hashs: List[str],
         category: str = "",
+        source_type: str = "",
     ):
         """
         Логирует сообщение пользователя.
@@ -193,23 +194,24 @@ class PostgreSQL:
             response_status: Статус ответа
             topic_hashs: Список хэшей тем
             category: Категория запроса
+            source_type: Откуда запрос
         """
         try:
             logger.debug("Logging message for user: %s", user_id)
             query = """
-                INSERT INTO bot_logs (user_id, query, response, response_status, category)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO query_logs (user_id, query, response, response_status, category, source_type)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING log_id;
             """
             self.cursor.execute(
-                query, (user_id, user_query, response, response_status, category)
+                query, (user_id, user_query, response, response_status, category, source_type)
             )
             result = self.cursor.fetchone()
             log_id = result[0] if result else None
 
             for topic_hash in topic_hashs:
                 hash_query = """
-                    INSERT INTO bot_log_topic_hashes (log_id, topic_hash)
+                    INSERT INTO query_topic_hashes (log_id, topic_hash)
                     VALUES (%s, %s)
                 """
                 self.cursor.execute(hash_query, (log_id, topic_hash))
@@ -278,7 +280,7 @@ class PostgreSQL:
             query = """
             WITH LastThreeLogs AS (
                 SELECT *
-                FROM bot_logs bl
+                FROM query_logs bl
                 WHERE bl.user_id = %s
                 ORDER BY bl.created_at DESC
                 LIMIT 3
