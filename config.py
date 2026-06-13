@@ -6,11 +6,11 @@ Redis, MySQL, PostgreSQL и API ключи для AI сервисов.
 """
 
 import os
-from dotenv import dotenv_values
+from dotenv import load_dotenv
 from logger_config import get_logger
 
-# Загрузка переменных окружения
-dotenv_values()
+# Загрузка переменных окружения из .env
+load_dotenv()
 
 logger = get_logger(__name__)
 

@@ -7,10 +7,9 @@
 
 import asyncio
 import logging
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from fastapi import HTTPException
-from mistralai import Mistral
-from mistralai import ChatCompletionResponse as MistralChatCompletionResponse
+from mistralai.client import Mistral
 from openai import AsyncOpenAI
 from openai.types.responses import Response as OpenAIChatCompletionResponse
 import httpx
@@ -35,9 +34,7 @@ logger = get_logger(__name__)
     retry=retry_if_exception_type((asyncio.TimeoutError, ConnectionError, ValueError)),
     before=before_log(logger, logging.INFO),
 )
-async def mistral_request(
-    api_key: str, model_name: str, messages: list
-) -> MistralChatCompletionResponse:
+async def mistral_request(api_key: str, model_name: str, messages: list) -> Any:
     """
     Отправляет запрос в Mistral API с автоматическими повторными попытками.
 
