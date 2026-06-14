@@ -21,8 +21,19 @@ from tenacity import (
     before_log,
 )
 
-from config import MISTRAL_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, PROXY
+from config import (
+    MISTRAL_API_KEY,
+    OPENAI_API_KEY,
+    DEEPSEEK_API_KEY,
+    PROXY,
+    PROMPT_VOICE,
+    PROMPT_CSV,
+    PROMPT_TEXT,
+    PROMPT_DEFAULT,
+)
 from logger_config import get_logger
+from routes.ai_router.schmeas import CategoryRequest
+from promts import get_classification_prompt
 
 logger = get_logger(__name__)
 
@@ -158,36 +169,11 @@ DEFAULT_MODEL_ORDER = [
     "gpt-4o-mini",
 ]
 
-# Словарь промптов по типу ввода
+# Словарь промптов по типу ввода (загружается из config)
 PROMPT_TEMPLATES = {
-    "voice": """
-    Ты - бот-помощник компании Фридом. Твоя задача проанализировать вопрос и контекст звукового файла.
-    Учитывай, что текст может содержать ошибки, поскольку был обработан из голосового сообщения.
-    Если вопроса нет, отвечай согласно тексту голосового сообщения. Используй HTML теги где нужно что-то выделить.
-    Делай текст хорошо структурированным и понятным. НЕ ИСПОЛЬЗУЙ MARKDOWN.
-    Только эти теги HTML (<b>, <i>, <a>, <code>, <pre>) НЕЛЬЗЯ ИСПОЛЬЗОВАТЬ: <ul>, <br>, <table>, <small> и остальные!
-    Отвечай четко и кратко на вопрос и только на русском.
-    """,
-    "csv": """
-    Ты бот-помощник компании Фридом. Обработай файл таблицы по запросу.
-    Если нет вопроса, то просто опиши таблицу. Используй HTML теги где нужно что-то выделить.
-    Делай текст хорошо структурированным и понятным. НЕ ИСПОЛЬЗУЙ MARKDOWN.
-    Только эти теги HTML (<b>, <i>, <a>, <code>, <pre>) НЕЛЬЗЯ ИСПОЛЬЗОВАТЬ: <ul>, <br>, <table>, <small> и остальные!
-    Отвечай четко и кратко на вопрос и только на русском.
-    """,
-    "text": """
-    Ты бот-помощник компании Фридом. Твоя задача — отвечать на вопросы сотрудников компании,
-    основываясь на предоставленных данных из корпоративной WIKI, содержащих важную информацию из статей.
-
-    Инструкции:
-    1. Если вопрос не про тарифы, то отвечай на него как обычно.
-    2. Если вопрос о тарифах:
-       - Если в контексте представлен контекст тарифов, то есть словарь с тарифами, ответь на вопрос как обычно.
-       - Если в контексте текст со ссылками на WIKI, это значит, что человек не указал территорию через команду /tariff. Предложи воспользоваться этой командой, чтобы уточнить территорию, а затем задать вопрос.
-    3. Не выдумывай факты, используй только предоставленные данные, которые точно отвечают на поставленный вопрос. Если нет информации в представленных контекстах WIKI то ты должна сказать, чтобы переформулировали вопрос поскольку в найденных данных нет ответа на вопрос
-    4. Строго запрещено использовать MARKDOWN. Используй только эти теги HTML (<b>, <i>, <a>, <code>, <pre>) НЕЛЬЗЯ ИСПОЛЬЗОВАТЬ: <ul>, <br>, <table>, <small> и остальные!
-    5. Если в контексте указана ссылка начинающиеся на http://wiki.freedom1.ru:8080/ , то прикрепи откуда брал информацию в ответе. В вопросе про тарифы это не нужно.
-    """,
+    "voice": PROMPT_VOICE,
+    "csv": PROMPT_CSV,
+    "text": PROMPT_TEXT,
 }
 
 
@@ -223,10 +209,7 @@ async def try_model(
         prompt = f"{PROMPT_TEMPLATES.get(input_type, '')}\n\nЗапрос: {query}\nКонтекст: {context}\nИстория: {history}"
         response = await handler(api_key, model, prompt)
     else:
-        system_content = PROMPT_TEMPLATES.get(
-            input_type,
-            """Ты — бот-помощник. Отвечай четко и кратко на русском языке.""",
-        )
+        system_content = PROMPT_TEMPLATES.get(input_type, PROMPT_DEFAULT)
         messages = [
             {"role": "system", "content": system_content},
             {
@@ -336,3 +319,98 @@ async def get_ai(
             "error": str(last_error),
         },
     )
+
+
+async def classify_query(
+    request_data: CategoryRequest
+) -> dict:
+    """
+    Классифицирует запрос пользователя с помощью AI.
+
+    Args:
+        request_data: Данные запроса с текстом для классификации
+
+    Returns:
+        dict: Результат классификации с полями:
+            - category: Категория запроса (Тарифы, Общий, Коммутаторы)
+            - address: Извлеченный адрес или None
+            - raw_response: Полный ответ от AI
+    """
+    try:
+        categories = ["Тарифы", "Общий", "Коммутаторы"]
+
+        # Формируем промт для классификации
+        classification_prompt = get_classification_prompt(categories, request_data.query)
+
+        # Классифицируем запрос через AI
+        logger.debug("Отправляем запрос на классификацию к AI модели...")
+        classification_result = await get_ai(
+            query=classification_prompt,
+            context="",
+            history="",
+            input_type="text",
+            model="mistral-large-latest",
+        )
+
+        logger.debug(f"Результат классификации: {classification_result}")
+
+        if not classification_result:
+            logger.error("Не удалось классифицировать запрос")
+            return {
+                "category": "Общий",
+                "address": None,
+                "raw_response": None
+            }
+
+        # Определяем категорию и извлекаем адрес
+        logger.debug("Начинаем разбор результата классификации...")
+        category = None
+        extracted_address = None
+        classification_lower = classification_result.lower().strip()
+        logger.debug(f"Результат для анализа: {classification_lower}")
+
+        # Парсим категорию
+        if "тариф" in classification_lower:
+            category = "Тарифы"
+            logger.debug("Определена категория: Тарифы")
+        elif "коммутатор" in classification_lower:
+            category = "Коммутаторы"
+            logger.debug("Определена категория: Коммутаторы")
+        else:
+            category = "Общий"
+            logger.debug("Категория не определена, используем: Общий")
+
+        # Парсим адрес из ответа LLM
+        logger.debug("Ищем адрес в ответе...")
+        lines = classification_result.split("\n")
+        for line in lines:
+            if "адрес:" in line.lower():
+                address_part = line.split(":", 1)[1].strip()
+                if address_part and address_part.lower() != "не найден":
+                    extracted_address = address_part
+                    logger.debug(f"Найден адрес: {extracted_address}")
+                break
+
+        if not extracted_address:
+            logger.debug("Адрес не найден в ответе")
+
+        logger.info(
+            f"Запрос классифицирован как: {category}, извлеченный адрес: {extracted_address}"
+        )
+
+        return {
+            "category": category,
+            "address": extracted_address,
+            "raw_response": classification_result
+        }
+
+    except Exception as e:
+        logger.exception(f"Ошибка при классификации запроса: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "message": "Ошибка при классификации запроса",
+                "error": str(e),
+            },
+        )

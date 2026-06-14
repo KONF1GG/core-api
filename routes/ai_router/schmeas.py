@@ -28,3 +28,28 @@ class AIResponse(BaseModel):
     """Модель ответа от AI системы."""
 
     ai_response: str = Field(..., description="Ответ от AI модели")
+
+class CategoryRequest(BaseModel):
+    """Модель запроса на категорирование"""
+
+    query: str = Field(..., description="Запрос пользователя")
+
+
+class ClassificationResponse(BaseModel):
+    """Модель ответа классификации запроса."""
+
+    category: str = Field(..., description="Категория запроса (Тарифы, Общий, Коммутаторы)")
+    address: str | None = Field(None, description="Извлеченный адрес или None")
+    raw_response: str | None = Field(None, description="Полный ответ от AI модели")
+
+
+class SwitcherRequest(BaseModel):
+    """Модель запроса для анализа коммутатора."""
+
+    query: str = Field(..., description="Запрос пользователя о коммутаторе")
+
+
+class SwitcherResponse(BaseModel):
+    """Модель ответа анализа коммутатора."""
+
+    analysis: str = Field(..., description="Результат анализа коммутатора")
