@@ -340,7 +340,7 @@ async def classify_query(
         categories = ["Тарифы", "Общий", "Коммутаторы"]
 
         # Формируем промт для классификации
-        classification_prompt = get_classification_prompt(categories, request_data.query)
+        classification_prompt = await get_classification_prompt(categories, request_data.query)
 
         # Классифицируем запрос через AI
         logger.debug("Отправляем запрос на классификацию к AI модели...")

@@ -137,7 +137,7 @@ async def analyze_switcher(request_data: SwitcherRequest):
         logger.info("Processing switcher analysis request")
 
         # Собираем данные из разных источников
-        context = analyze_switch(request_data.query)
+        context = await analyze_switch(request_data.query)
 
         # Формируем промт для AI
         prompt = PROMPT_SWITCHER.format(

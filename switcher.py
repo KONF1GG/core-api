@@ -205,7 +205,7 @@ def get_fdb_from_clickhouse(switch_ip: str, days: int = 30) -> List[Dict[str, An
         return []
 
 
-def snmp_getnext(switch_ip: str, oid: str, community: str = SNMP_COMMUNITY, timeout: int = 2) -> List[tuple]:
+async def snmp_getnext(switch_ip: str, oid: str, community: str = SNMP_COMMUNITY, timeout: int = 2) -> List[tuple]:
     """
     Выполняет SNMP GETNEXT запрос используя pysnmp 7.x asyncio API.
     
@@ -219,48 +219,43 @@ def snmp_getnext(switch_ip: str, oid: str, community: str = SNMP_COMMUNITY, time
         Список кортежей (oid, value)
     """
     try:
-        import asyncio
         from pysnmp.entity.rfc3413 import cmdgen
         from pysnmp.proto.api import v2c
         from pysnmp.carrier.asyncio.dgram import UdpTransport
         
-        async def get_next_async():
-            # Создаем SNMP engine
-            snmp_engine = cmdgen.SnmpEngine()
-            
-            # Создаем транспорт
-            transport = UdpTransport().openClientMode()
-            await transport.openTransport()
-            
-            # Создаем командный генератор
-            cmd_gen = cmdgen.NextCommandGenerator()
-            
-            # Отправляем запрос
-            error_indication, error_status, error_index, var_binds = await cmd_gen.sendVarBinds(
-                snmp_engine,
-                cmdgen.UdpTransportTarget((switch_ip, 161)),
-                cmdgen.CommunityData(community),
-                v2c.ObjectType(v2c.ObjectIdentity(oid)),
-            )
-            
-            await transport.closeTransport()
-            
-            if error_indication:
-                raise Exception(f"SNMP error: {error_indication}")
-            
-            if error_status:
-                raise Exception(f"SNMP error status: {error_status}")
-            
-            # Парсим результаты
-            results = []
-            for var_bind in var_binds:
-                for oid, value in var_bind:
-                    results.append((str(oid), str(value)))
-            
-            return results
+        # Создаем SNMP engine
+        snmp_engine = cmdgen.SnmpEngine()
         
-        # Запускаем асинхронную функцию
-        return asyncio.run(get_next_async())
+        # Создаем транспорт
+        transport = UdpTransport().openClientMode()
+        await transport.openTransport()
+        
+        # Создаем командный генератор
+        cmd_gen = cmdgen.NextCommandGenerator()
+        
+        # Отправляем запрос
+        error_indication, error_status, error_index, var_binds = await cmd_gen.sendVarBinds(
+            snmp_engine,
+            cmdgen.UdpTransportTarget((switch_ip, 161)),
+            cmdgen.CommunityData(community),
+            v2c.ObjectType(v2c.ObjectIdentity(oid)),
+        )
+        
+        await transport.closeTransport()
+        
+        if error_indication:
+            raise Exception(f"SNMP error: {error_indication}")
+        
+        if error_status:
+            raise Exception(f"SNMP error status: {error_status}")
+        
+        # Парсим результаты
+        results = []
+        for var_bind in var_binds:
+            for oid, value in var_bind:
+                results.append((str(oid), str(value)))
+        
+        return results
     
     except Exception as e:
         logger.error(f"SNMP GETNEXT ошибка: {e}")
@@ -310,7 +305,7 @@ async def snmp_walk(host: str, oid: str):
     return result
 
 
-def get_port_status_via_snmp(switch_ip: str) -> dict:
+async def get_port_status_via_snmp(switch_ip: str) -> dict:
     """
     Получение списка портов через SNMP.
     """
@@ -324,9 +319,7 @@ def get_port_status_via_snmp(switch_ip: str) -> dict:
         port_statuses = {}
         port_vlans = {}
 
-        names = asyncio.run(
-            snmp_walk(switch_ip, port_name_oid)
-        )
+        names = await snmp_walk(switch_ip, port_name_oid)
 
         for oid, value in names:
             try:
@@ -335,9 +328,7 @@ def get_port_status_via_snmp(switch_ip: str) -> dict:
             except Exception:
                 pass
 
-        statuses = asyncio.run(
-            snmp_walk(switch_ip, port_status_oid)
-        )
+        statuses = await snmp_walk(switch_ip, port_status_oid)
 
         for oid, value in statuses:
             try:
@@ -351,9 +342,7 @@ def get_port_status_via_snmp(switch_ip: str) -> dict:
                 pass
 
         try:
-            vlans = asyncio.run(
-                snmp_walk(switch_ip, vlan_oid)
-            )
+            vlans = await snmp_walk(switch_ip, vlan_oid)
 
             for oid, value in vlans:
                 try:
@@ -428,7 +417,7 @@ def get_switch_model_info(model: str) -> Dict[str, Any]:
     }
 
 
-def analyze_switch(query: str) -> str:
+async def analyze_switch(query: str) -> str:
     """
     Анализирует запрос о коммутаторе и собирает данные из разных источников.
     
@@ -463,14 +452,10 @@ def analyze_switch(query: str) -> str:
         context_parts.append("\n=== ДАННЫЕ FDB (ClickHouse) ===\nДанные не найдены или ошибка подключения")
     
     # 3. Получаем данные через SNMP
-    snmp_data = get_port_status_via_snmp(switch_ip)
+    snmp_data = await get_port_status_via_snmp(switch_ip)
     if snmp_data.get("available"):
         context_parts.append(f"\n=== ДАННЫЕ SNMP ===\n{json.dumps(snmp_data['ports'], ensure_ascii=False, indent=2)}")
     else:
         context_parts.append(f"\n=== ДАННЫЕ SNMP ===\nНедоступно: {snmp_data.get('error', 'Неизвестная ошибка')}")
 
     return "\n".join(context_parts)
-
-
-result = get_port_status_via_snmp("10.10.0.110")
-print(json.dumps(result, ensure_ascii=False, indent=2))

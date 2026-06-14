@@ -1,6 +1,6 @@
 from config import PROMPT_CLASSIFICATION
 
-def get_classification_prompt(categories: list, user_query: str) -> str:
+async def get_classification_prompt(categories: list, user_query: str) -> str:
     """
     Формирует промт для классификации запроса на основе шаблона из конфигурации.
 
