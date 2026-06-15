@@ -42,6 +42,10 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 # Прокси
 PROXY = os.getenv("PROXY")
 
+# Внешние сервисы для тарифной логики
+REDIS_ADAPTER_URL = os.getenv("REDIS_ADAPTER_URL")
+LLM_URL = os.getenv("LLM_URL")
+
 # AI Промты (загружаются из переменных окружения для ConfigMap)
 PROMPT_VOICE = os.getenv(
     "PROMPT_VOICE",

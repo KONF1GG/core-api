@@ -8,6 +8,7 @@ from logger_config import setup_logging, get_logger
 from routes.frida_routes.auth_router import router as auth_router
 from routes.frida_routes.logger_router import router as logger_router
 from routes.ai_router.ai_routes import router as ai_router
+from routes.tariff_router.tariff_routes import router as tariff_router
 
 # Инициализация логирования
 
@@ -32,6 +33,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(ai_router)
 app.include_router(logger_router)
+app.include_router(tariff_router)
 
 
 @app.get("/")
@@ -41,7 +43,7 @@ async def root():
     return {
         "message": "WIKI API работает",
         "version": "1.0.0",
-        "services": {"redis": "/redis", "telegram": "/telegram", "ai": "/ai"},
+        "services": {"tariff": "/v1/tariff", "telegram": "/telegram", "ai": "/ai"},
         "docs": "/docs",
     }
 
