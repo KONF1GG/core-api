@@ -11,11 +11,14 @@ from ai import get_ai, classify_query
 from config import PROMPT_SWITCHER
 from logger_config import get_logger
 from switcher import analyze_switch
+from switcher_probe import collect_switch_probe
 from .schmeas import (
     AIRequest,
     AIResponse,
     CategoryRequest,
     ClassificationResponse,
+    SwitcherProbeRequest,
+    SwitcherProbeResponse,
     SwitcherRequest,
     SwitcherResponse,
 )
@@ -161,6 +164,56 @@ async def analyze_switcher(request_data: SwitcherRequest):
         raise
     except Exception as e:
         logger.error("Unexpected error in analyze_switcher: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "message": "Internal server error",
+                "error": str(e),
+            },
+        ) from e
+
+
+@router.post(
+    "/v1/switcher/probe",
+    response_model=SwitcherProbeResponse,
+    summary="Диагностика источников switcher",
+    description=(
+        "Возвращает сырые и обработанные данные из Zabbix, ClickHouse и SNMP "
+        "для отладки парсинга и расчёта свободных портов"
+    ),
+    tags=["AI"],
+)
+async def probe_switcher(request_data: SwitcherProbeRequest):
+    """
+    Диагностика источников данных коммутатора.
+
+    Args:
+        request_data: IP и параметры опроса источников
+
+    Returns:
+        SwitcherProbeResponse: Структурированный дамп данных
+    """
+    try:
+        logger.info("Processing switcher probe request for ip=%s", request_data.ip)
+
+        result = await collect_switch_probe(
+            switch_ip=request_data.ip,
+            source=request_data.source,
+            days=request_data.days,
+            snmp_limit=request_data.snmp_limit,
+            row_limit=request_data.row_limit,
+            include_context=request_data.include_context,
+            query=request_data.query,
+        )
+
+        logger.info("Switcher probe completed for ip=%s", result.get("switch_ip"))
+        return SwitcherProbeResponse(**result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in probe_switcher: %s", e, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={

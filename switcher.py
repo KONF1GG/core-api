@@ -4,6 +4,7 @@
 Поддерживает работу с Zabbix, ClickHouse и SNMP для получения данных о коммутаторах.
 """
 
+import asyncio
 import json
 import re
 import requests
@@ -19,9 +20,6 @@ from pysnmp.hlapi.v3arch.asyncio import (
     ObjectIdentity,
     next_cmd,
 )
-
-import asyncio
-
 
 from config import (
     ZABBIX_URL,
@@ -205,63 +203,6 @@ def get_fdb_from_clickhouse(switch_ip: str, days: int = 30) -> List[Dict[str, An
         return []
 
 
-async def snmp_getnext(switch_ip: str, oid: str, community: str = SNMP_COMMUNITY, timeout: int = 2) -> List[tuple]:
-    """
-    Выполняет SNMP GETNEXT запрос используя pysnmp 7.x asyncio API.
-    
-    Args:
-        switch_ip: IP-адрес коммутатора
-        oid: OID для запроса
-        community: SNMP community string
-        timeout: Таймаут в секундах
-        
-    Returns:
-        Список кортежей (oid, value)
-    """
-    try:
-        from pysnmp.entity.rfc3413 import cmdgen
-        from pysnmp.proto.api import v2c
-        from pysnmp.carrier.asyncio.dgram import UdpTransport
-        
-        # Создаем SNMP engine
-        snmp_engine = cmdgen.SnmpEngine()
-        
-        # Создаем транспорт
-        transport = UdpTransport().openClientMode()
-        await transport.openTransport()
-        
-        # Создаем командный генератор
-        cmd_gen = cmdgen.NextCommandGenerator()
-        
-        # Отправляем запрос
-        error_indication, error_status, error_index, var_binds = await cmd_gen.sendVarBinds(
-            snmp_engine,
-            cmdgen.UdpTransportTarget((switch_ip, 161)),
-            cmdgen.CommunityData(community),
-            v2c.ObjectType(v2c.ObjectIdentity(oid)),
-        )
-        
-        await transport.closeTransport()
-        
-        if error_indication:
-            raise Exception(f"SNMP error: {error_indication}")
-        
-        if error_status:
-            raise Exception(f"SNMP error status: {error_status}")
-        
-        # Парсим результаты
-        results = []
-        for var_bind in var_binds:
-            for oid, value in var_bind:
-                results.append((str(oid), str(value)))
-        
-        return results
-    
-    except Exception as e:
-        logger.error(f"SNMP GETNEXT ошибка: {e}")
-        return []
-
-
 async def snmp_walk(host: str, oid: str):
     result = []
 
@@ -271,11 +212,12 @@ async def snmp_walk(host: str, oid: str):
         retries=1,
     )
 
+    snmp_engine = SnmpEngine()
     current_oid = ObjectIdentity(oid)
 
     while True:
         error_indication, error_status, error_index, var_binds = await next_cmd(
-            SnmpEngine(),
+            snmp_engine,
             CommunityData(SNMP_COMMUNITY),
             transport,
             ContextData(),
@@ -319,7 +261,15 @@ async def get_port_status_via_snmp(switch_ip: str) -> dict:
         port_statuses = {}
         port_vlans = {}
 
-        names = await snmp_walk(switch_ip, port_name_oid)
+        names, statuses, vlans = await asyncio.gather(
+            snmp_walk(switch_ip, port_name_oid),
+            snmp_walk(switch_ip, port_status_oid),
+            snmp_walk(switch_ip, vlan_oid),
+            return_exceptions=True,
+        )
+
+        if isinstance(names, Exception):
+            raise names
 
         for oid, value in names:
             try:
@@ -328,33 +278,27 @@ async def get_port_status_via_snmp(switch_ip: str) -> dict:
             except Exception:
                 pass
 
-        statuses = await snmp_walk(switch_ip, port_status_oid)
+        if not isinstance(statuses, Exception):
+            for oid, value in statuses:
+                try:
+                    idx = int(oid.split(".")[-1])
+                    port_statuses[idx] = (
+                        "up"
+                        if int(value) == 1
+                        else "down"
+                    )
+                except Exception:
+                    pass
 
-        for oid, value in statuses:
-            try:
-                idx = int(oid.split(".")[-1])
-                port_statuses[idx] = (
-                    "up"
-                    if int(value) == 1
-                    else "down"
-                )
-            except Exception:
-                pass
-
-        try:
-            vlans = await snmp_walk(switch_ip, vlan_oid)
-
+        if isinstance(vlans, Exception):
+            logger.warning("Не удалось получить VLAN через SNMP")
+        else:
             for oid, value in vlans:
                 try:
                     idx = int(oid.split(".")[-1])
                     port_vlans[idx] = int(value)
                 except Exception:
                     pass
-
-        except Exception:
-            logger.warning(
-                "Не удалось получить VLAN через SNMP"
-            )
 
         ports = []
 
@@ -393,30 +337,6 @@ async def get_port_status_via_snmp(switch_ip: str) -> dict:
             "error": str(e),
         }
 
-def get_switch_model_info(model: str) -> Dict[str, Any]:
-    """
-    Получает информацию о модели коммутатора из справочника.
-    
-    Args:
-        model: Модель коммутатора
-        
-    Returns:
-        Словарь с информацией о модели
-    """
-    info = SWITCH_MODELS.get(model)
-    if not info:
-        return {
-            "error": f"Модель '{model}' не найдена в справочнике",
-            "available_models": list(SWITCH_MODELS.keys())
-        }
-    
-    return {
-        "model": model,
-        "ports": info["ports"],
-        "type": info["type"]
-    }
-
-
 async def analyze_switch(query: str) -> str:
     """
     Анализирует запрос о коммутаторе и собирает данные из разных источников.
@@ -435,24 +355,24 @@ async def analyze_switch(query: str) -> str:
     if not switch_ip:
         return "Ошибка: не удалось найти IP-адрес коммутатора в запросе. Пожалуйста, укажите IP-адрес."
     
+    zabbix_data, fdb_data, snmp_data = await asyncio.gather(
+        asyncio.to_thread(get_switches_from_zabbix, switch_ip),
+        asyncio.to_thread(get_fdb_from_clickhouse, switch_ip),
+        get_port_status_via_snmp(switch_ip),
+    )
+
     context_parts = []
-    
-    # 1. Получаем данные из Zabbix
-    zabbix_data = get_switches_from_zabbix(switch_ip)
+
     if zabbix_data:
         context_parts.append(f"=== ДАННЫЕ ZABBIX ===\n{json.dumps(zabbix_data, ensure_ascii=False, indent=2)}")
     else:
         context_parts.append("=== ДАННЫЕ ZABBIX ===\nКоммутатор не найден или ошибка подключения")
-    
-    # 2. Получаем данные из ClickHouse
-    fdb_data = get_fdb_from_clickhouse(switch_ip)
+
     if fdb_data:
         context_parts.append(f"\n=== ДАННЫЕ FDB (ClickHouse) ===\n{json.dumps(fdb_data, ensure_ascii=False, indent=2)}")
     else:
         context_parts.append("\n=== ДАННЫЕ FDB (ClickHouse) ===\nДанные не найдены или ошибка подключения")
-    
-    # 3. Получаем данные через SNMP
-    snmp_data = await get_port_status_via_snmp(switch_ip)
+
     if snmp_data.get("available"):
         context_parts.append(f"\n=== ДАННЫЕ SNMP ===\n{json.dumps(snmp_data['ports'], ensure_ascii=False, indent=2)}")
     else:
