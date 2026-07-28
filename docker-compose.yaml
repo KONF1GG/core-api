@@ -1,10 +1,52 @@
-
 services:
-  app:
-    build: .
-    restart: always
-    container_name: core_api
-    ports:
-      - "8443:8000"
+  agent-service:
+    build:
+      context: .
+    command: uvicorn agent_service.app.main:app --host 0.0.0.0 --port 8000
     env_file:
-      - .env
+      - path: .env
+        required: false
+    environment:
+      MCP_TARIFF_URL: http://mcp-tariff:8101
+      MCP_SWITCHER_URL: http://mcp-switcher:8102
+      MCP_MILVUS_URL: http://mcp-milvus:8103
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mcp-tariff
+      - mcp-switcher
+      - mcp-milvus
+
+  mcp-tariff:
+    build:
+      context: .
+    command: uvicorn mcp_servers.tariff.server:app --host 0.0.0.0 --port 8101
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LLM_URL: http://host.docker.internal:8002
+    ports:
+      - "8101:8101"
+
+  mcp-switcher:
+    build:
+      context: .
+    command: uvicorn mcp_servers.switcher.server:app --host 0.0.0.0 --port 8102
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8102:8102"
+
+  mcp-milvus:
+    build:
+      context: .
+    command: uvicorn mcp_servers.milvus.server:app --host 0.0.0.0 --port 8103
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MILVUS_SEARCH_URL: http://host.docker.internal:8005/v2/mlv_search
+    ports:
+      - "8103:8103"

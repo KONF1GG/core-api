@@ -1,108 +1,114 @@
-# Core API
+# Agent Service
 
-API сервис для работы с Redis, Telegram ботом Фридой и AI запросами.
+Единая точка входа для клиентов (Telegram, Max, Web) с MCP-архитектурой.
 
-## Описание
+## Архитектура
 
-Core API предоставляет централизованный интерфейс для:
-- Работы с Redis базой данных
-- Интеграции с Telegram ботом Frida
-- Обработки AI запросов
-- Логирования и аутентификации
+```text
+clients (telegram / max / web)
+        │
+        ▼
+agent-service  POST /v1/chat
+        │
+        ├── mcp-tariff    (адреса, тарифы)
+        ├── mcp-switcher  (коммутаторы, порты)
+        └── mcp-milvus    (wiki / vector search)
+```
 
-## Технологии
+`agent-service` агрегирует инструменты MCP-сервисов, запускает ReAct-цикл с LLM
+и возвращает готовый ответ клиенту.
 
-- **FastAPI** - веб-фреймворк для создания API
-- **Redis** - база данных для кеширования
-- **MySQL/PostgreSQL** - реляционные базы данных
-- **OpenAI/Mistral AI** - интеграция с AI сервисами
-- **Docker** - контейнеризация
-
-## Установка
-
-### Через Docker (рекомендуется)
+## Быстрый старт
 
 ```bash
-# Клонируйте репозиторий
-git clone <repository-url>
-cd core-api
+cp .env.example .env
+# заполните API-ключи и REDIS_ADAPTER_URL
 
-# Запустите через Docker Compose
-docker-compose up -d
+docker compose up --build -d
 ```
 
-### Локальная установка
+Сервисы:
+- Agent Service: `http://localhost:8000`
+- MCP Tariff: `http://localhost:8101`
+- MCP Switcher: `http://localhost:8102`
+- MCP Milvus: `http://localhost:8103`
+
+## API
+
+### Chat
+
+```http
+POST /v1/chat
+```
+
+```json
+{
+  "user_id": "123",
+  "session_id": "tg_123",
+  "source": "telegram",
+  "message": "Какие тарифы на Ленина 5?",
+  "input_type": "text"
+}
+```
+
+### Диагностика
+
+- `GET /health` — состояние agent-service
+- `GET /v1/tools` — список инструментов со всех MCP-сервисов
+- `GET /v1/mcp/health` — health-check MCP-сервисов
+
+Проверка:
 
 ```bash
-# Установите зависимости (требуется Python 3.13+)
-pip install -e .
-
-# Или с использованием uv
-uv sync
+curl http://localhost:8000/v1/tools
+curl http://localhost:8000/v1/mcp/health
 ```
 
-## Настройка
+## Структура
 
-Создайте файл `.env` с необходимыми переменными окружения:
+```text
+agent_service/                  # deployable: единый brain (POST /v1/chat)
+  app/
+    main.py                     # FastAPI entrypoint
+    api.py                      # /v1/chat, /v1/tools, /v1/mcp/health
+    config.py                   # Redis adapter, LLM keys, prompts, MCP URLs
+    agent/
+      context.py                # история диалога через redis-adapter
+      executor.py               # ReAct loop orchestration
+    llm/
+      provider.py               # LLM + tool calling
+    mcp/
+      aggregator.py             # HTTP-клиент MCP-сервисов
 
-```env
-LOG_LEVEL=INFO
-REDIS_URL=redis://localhost:6379
-DATABASE_URL=your_database_url
-OPENAI_API_KEY=your_openai_key
-MISTRAL_API_KEY=your_mistral_key
+mcp_servers/                    # deployable: доменные MCP-сервисы
+  base.py                       # общие /health и /tools
+  tariff/
+    server.py                   # resolve_address, get_tariffs
+    config.py
+    services/                   # доменная логика tariff
+      tariff_service.py
+      address_client.py
+  switcher/
+    server.py                   # analyze_switcher
+    config.py
+    analyzer.py                 # Zabbix / ClickHouse / SNMP
+    probe.py                    # CLI-диагностика источников
+  milvus/
+    server.py                   # search_documents
+    config.py
+
+shared/                         # общие контракты и инфраструктура
+  schemas.py                    # ChatRequest / ChatResponse
+  logging.py                    # централизованное логирование
+  redis_adapter_client.py       # HTTP-клиент redis-adapter
+
+scripts/
+  switcher_probe.py             # CLI для диагностики switcher
 ```
 
-## Запуск
+## История диалога
 
-### Docker
-```bash
-docker-compose up
-```
-
-### Локально
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-API будет доступен по адресу: `http://localhost:8000`
-
-## API Документация
-
-После запуска сервиса документация доступна по адресам:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-## Структура проекта
-
-```
-├── main.py              # Основное приложение FastAPI
-├── config.py            # Конфигурация
-├── dependencies.py      # Зависимости FastAPI
-├── databases.py         # Подключения к БД
-├── ai.py               # AI интеграции
-├── funcs.py            # Вспомогательные функции
-├── logger_config.py    # Настройка логирования
-├── routes/             # API маршруты
-│   ├── ai_router/      # AI запросы
-│   ├── frida_routes/   # Telegram бот Frida
-│   └── redis_routes/   # Redis операции
-├── docker-compose.yml  # Docker конфигурация
-└── pyproject.toml      # Зависимости проекта
-```
-
-## Разработка
-
-Для разработки рекомендуется использовать виртуальное окружение:
-
-```bash
-# Создайте виртуальное окружение
-python -m venv venv
-source venv/bin/activate  # На Windows: venv\Scripts\activate
-
-# Установите зависимости
-pip install -e .
-
-# Запустите в режиме разработки
-uvicorn main:app --reload
-```
+Хранится в Redis по ключу `agent-service:history:{session_id}` через HTTP-адаптер.
+Это временный кэш для текущей сессии: скользящее окно (`AGENT_HISTORY_WINDOW_SIZE`, по умолчанию 20 ходов)
+и TTL (`AGENT_HISTORY_TTL_SECONDS`, по умолчанию 3600 с). Постоянная история — в PostgreSQL.
+Параметр подключения — `REDIS_ADAPTER_URL` в `.env`.

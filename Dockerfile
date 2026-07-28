@@ -14,4 +14,4 @@ COPY . /app
 
 ENV PATH="/env/bin:$PATH"
 
-CMD ["python", "main.py"]
+CMD ["uvicorn", "agent_service.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
