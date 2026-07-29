@@ -41,6 +41,13 @@ class PostgreSQL:
         self.cursor.execute("SELECT user_id, username FROM users WHERE is_admin = TRUE")
         return self.cursor.fetchall()
 
+    def check_user_is_admin(self, user_id: int) -> bool:
+        self.cursor.execute(
+            "SELECT 1 FROM users WHERE user_id = %s AND is_admin = TRUE",
+            (user_id,),
+        )
+        return self.cursor.fetchone() is not None
+
     def log_message(
         self,
         user_id: int,

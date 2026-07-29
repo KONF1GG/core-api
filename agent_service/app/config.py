@@ -76,6 +76,23 @@ AUTH_1C_URL = os.getenv(
     "http://server1c.freedom1.ru/UNF_CRM_WS/hs/Grafana/anydata",
 )
 
+# nlp-utils: поиск и загрузка wiki в Milvus
+MILVUS_SEARCH_URL = os.getenv("MILVUS_SEARCH_URL", "").rstrip("/")
+_MILVUS_UPLOAD_URL_ENV = os.getenv("MILVUS_UPLOAD_URL", "").rstrip("/")
+
+
+def _milvus_upload_url() -> str:
+    if _MILVUS_UPLOAD_URL_ENV:
+        return _MILVUS_UPLOAD_URL_ENV
+    if MILVUS_SEARCH_URL.endswith("/v2/mlv_search"):
+        return MILVUS_SEARCH_URL[: -len("/v2/mlv_search")] + "/v1/upload_wiki_data"
+    if MILVUS_SEARCH_URL.endswith("/v1/mlv_search"):
+        return MILVUS_SEARCH_URL[: -len("/v1/mlv_search")] + "/v1/upload_wiki_data"
+    return ""
+
+
+MILVUS_UPLOAD_URL = _milvus_upload_url()
+
 
 def _postgres_config() -> dict[str, str] | None:
     if not all([POSTGRES_HOST, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB]):
