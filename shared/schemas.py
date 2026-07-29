@@ -36,3 +36,18 @@ class ChatResponse(BaseModel):
     source: ClientSource
     tool_calls: list[ToolCallRecord] = Field(default_factory=list)
     model: str | None = None
+
+
+class TestChatRequest(BaseModel):
+    """Тестовый запрос без сессии и истории."""
+
+    message: str = Field(..., min_length=1, description="Сообщение пользователя")
+    model: str | None = Field(default=None, description="Предпочитаемая LLM-модель")
+
+
+class TestChatResponse(BaseModel):
+    """Ответ тестовой ручки."""
+
+    text: str
+    tool_calls: list[ToolCallRecord] = Field(default_factory=list)
+    model: str | None = None

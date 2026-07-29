@@ -22,7 +22,7 @@ from agent_service.app.llm.provider import run_agent_loop
 from agent_service.app.mcp.aggregator import MCPAggregator
 from shared.log_helpers import summarize_tool_calls, truncate
 from shared.logging import get_logger
-from shared.schemas import ChatRequest, ChatResponse, ToolCallRecord
+from shared.schemas import ChatRequest, ChatResponse, TestChatResponse, ToolCallRecord
 
 logger = get_logger(__name__)
 
@@ -35,6 +35,27 @@ class AgentExecutor:
     ):
         self.mcp = mcp or MCPAggregator()
         self.context = context or ConversationContext()
+
+    async def run_stateless(
+        self,
+        message: str,
+        *,
+        model: str | None = None,
+        input_type: str = "text",
+    ) -> TestChatResponse:
+        """Один запрос → ответ без истории, redis и логирования в PG."""
+        model = model or config.AGENT_MODEL
+        tools = await self.mcp.list_tools_for_llm()
+        answer, tool_calls = await run_agent_loop(
+            user_message=message,
+            history="",
+            tools=tools,
+            mcp=self.mcp,
+            max_iterations=config.AGENT_MAX_TOOL_ITERATIONS,
+            model=model,
+            input_type=input_type,
+        )
+        return TestChatResponse(text=answer, tool_calls=tool_calls, model=model)
 
     async def run(self, request: ChatRequest) -> ChatResponse:
         started = time.monotonic()

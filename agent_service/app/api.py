@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from agent_service.app.agent.executor import AgentExecutor
 from agent_service.app.mcp.aggregator import MCPAggregator
 from shared.logging import get_logger
-from shared.schemas import ChatRequest, ChatResponse
+from shared.schemas import ChatRequest, ChatResponse, TestChatRequest, TestChatResponse
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/v1", tags=["Agent"])
@@ -36,6 +36,19 @@ async def chat(request: ChatRequest) -> ChatResponse:
             exc,
             exc_info=True,
         )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/test", response_model=TestChatResponse)
+async def test_chat(request: TestChatRequest) -> TestChatResponse:
+    """Тест агента: только message, без истории/сессии/redis/PG."""
+    try:
+        return await AgentExecutor(mcp=_mcp).run_stateless(
+            request.message,
+            model=request.model,
+        )
+    except Exception as exc:
+        logger.error("[api:test] 500: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
